@@ -5,3 +5,13 @@
  * @brief   a simple ringbuffer, DO NOT support dynamic expanded memory
  */
 
+#include <stdio.h>
+#include <string.h>
+
+#include "ringbuffer.h"
+
+int main()
+{
+    fprintf(stdout, "Hello world!\n");
+    return 0;
+}
