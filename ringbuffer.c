@@ -4,15 +4,22 @@
  * @date 2013/01/16 13:33:20
  * @brief   a simple ringbuffer, DO NOT support dynamic expanded memory
  */
+#include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 
-typedef struct {
+#include "ringbuffer.h"
+
+#define min(a, b) (a)<(b)?(a):(b)
+
+struct RingBuffer{
     size_t rb_capacity;
     char  *rb_head;
     char  *rb_tail;
     char  *rb_buff;
-}RingBuffer;
+};
 
-RingBuffer rb_new(size_t capacity)
+RingBuffer* rb_new(size_t capacity)
 {
     RingBuffer *rb = (RingBuffer *) malloc(sizeof(RingBuffer) + capacity);
     if (rb == NULL) return NULL;
@@ -71,7 +78,7 @@ size_t     rb_read(RingBuffer *rb, void *data, size_t count)
             int copy_sz = rb_capacity(rb) - (rb->rb_head - rb->rb_buff);
             memcpy(data, rb->rb_head, copy_sz);
             rb->rb_head = rb->rb_buff;
-            copy_sz += rb_read(rb, data+copy_sz, count-copy_sz);
+            copy_sz += rb_read(rb, (char*)data+copy_sz, count-copy_sz);
             return copy_sz;
         }
     }
@@ -84,7 +91,7 @@ size_t     rb_write(RingBuffer *rb, const void *data, size_t count)
     
     if (count >= rb_can_write(rb)) return -1;
     
-    if (rb->head <= rb->tail)
+    if (rb->rb_head <= rb->rb_tail)
     {
         int tail_avail_sz = rb_capacity(rb) - (rb->rb_tail - rb->rb_buff);
         if (count <= tail_avail_sz)
@@ -100,7 +107,7 @@ size_t     rb_write(RingBuffer *rb, const void *data, size_t count)
             memcpy(rb->rb_tail, data, tail_avail_sz);
             rb->rb_tail = rb->rb_buff;
             
-            return tail_avail_sz + rb_write(rb, data+tail_avail_sz, count-tail_avail_sz);
+            return tail_avail_sz + rb_write(rb, (char*)data+tail_avail_sz, count-tail_avail_sz);
         }
     }
     else
