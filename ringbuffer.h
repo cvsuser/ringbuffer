@@ -12,8 +12,8 @@
 
 struct RingBuffer;
 
-RingBuffer rb_new(size_t capacity);
-void       rb_free(RingBuffer *rb);
+RingBuffer* rb_new(size_t capacity);
+void        rb_free(RingBuffer *rb);
 
 size_t     rb_capacity(RingBuffer *rb);
 size_t     rb_can_read(RingBuffer *rb);
