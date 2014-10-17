@@ -1,25 +1,35 @@
-/**
- * Project page: https://github.com/wangrn/ringbuffer
- * Copyright (c) 2013 Wang Ruining <https://github.com/wangrn>
- * @date 2013/01/16 13:33:20
- * @brief   a simple ringbuffer, DO NOT support dynamic expanded memory
- */
 
 #ifndef RINGBUFFER_H
 #define RINGBUFFER_H
 
+#include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
 
-struct RingBuffer;
+typedef unsigned char u8;
 
-RingBuffer* rb_new(size_t capacity);
-void        rb_free(RingBuffer *rb);
+typedef struct rb{
+    size_t rb_capacity;
 
-size_t     rb_capacity(RingBuffer *rb);
-size_t     rb_can_read(RingBuffer *rb);
-size_t     rb_can_write(RingBuffer *rb);
+    //pthread_rwlock_t  rwlock;
+    pthread_mutex_t rwlock;
+    pthread_cond_t cond;
 
-size_t     rb_read(RingBuffer *rb, void *data, size_t count);
-size_t     rb_write(RingBuffer *rb, const void *data, size_t count);
+    u8  *rb_head;
+    u8  *rb_tail;
+    u8  *buff;
+
+    int read_pos;
+    int write_pos;
+
+    int available_for_read;
+    //int available_for_write = rb_capacity - available_for_read;
+}rb;
+
+rb* rb_new(size_t capacity);
+void    rb_del(rb *rb);
+
+size_t  rb_read(rb *rb, void *data, size_t count);
+size_t  rb_write(rb *rb, const void *data, size_t count);
 
 #endif

@@ -1,10 +1,4 @@
-//jzheng test
-/**
- * Project page: https://github.com/wangrn/ringbuffer
- * Copyright (c) 2013 Wang Ruining <https://github.com/wangrn>
- * @date 2013/01/16 13:33:20
- * @brief   a simple ringbuffer, DO NOT support dynamic expanded memory
- */
+
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,108 +7,106 @@
 
 #define min(a, b) (a)<(b)?(a):(b)
 
-struct RingBuffer{
-    size_t rb_capacity;
-    char  *rb_head;
-    char  *rb_tail;
-    char  *rb_buff;
+rb* rb_new(size_t capacity)
+{
+    rb *p =  calloc(1, sizeof(struct rb) + capacity * sizeof(u8) );
+
+    if (p == NULL) return NULL;
+
+    p->rb_capacity = capacity;
+    p->buff     = (u8 *)p + sizeof(struct rb);
+
+    p->read_pos = 0;
+    p->write_pos = 0;
+
+    p->available_for_read = 0;
+    //int available_for_write = rb_capacity - available_for_read;
+
+    pthread_cond_init(&p->cond,NULL);
+    pthread_mutex_init(&p->rwlock, NULL);
+    //pthread_rwlock_init(&p->rwlock, NULL);
+    printf("p = %p,buff = %p\n",p,p->buff);
+    return p;
 };
 
-RingBuffer* rb_new(size_t capacity)
+void  rb_del(rb *rb)
 {
-    RingBuffer *rb = (RingBuffer *) malloc(sizeof(RingBuffer) + capacity);
-    if (rb == NULL) return NULL;
-    
-    rb->rb_capacity = capacity;
-    rb->rb_buff     = (char*)rb + sizeof(RingBuffer);
-    rb->rb_head     = rb->rb_buff;
-    rb->rb_tail     = rb->rb_buff;
-};
-
-void  rb_free(RingBuffer *rb)
-{
-    free((char*)rb);
+    if(rb){
+        //pthread_rwlock_destroy( &rb->rwlock );
+        pthread_mutex_destroy( &rb->rwlock );
+        pthread_cond_destroy(&rb->cond);
+        free((u8 *)rb);
+    }
 }
 
-size_t     rb_capacity(RingBuffer *rb)
-{
-    assert(rb != NULL);
-    return rb->rb_capacity;
-}
-size_t     rb_can_read(RingBuffer *rb)
-{
-    assert(rb != NULL);
-    if (rb->rb_head == rb->rb_tail) return 0;
-    if (rb->rb_head < rb->rb_tail) return rb->rb_tail - rb->rb_head;
-    return rb_capacity(rb) - (rb->rb_head - rb->rb_tail);
-}
-size_t     rb_can_write(RingBuffer *rb)
-{
-    assert(rb != NULL);
-    return rb_capacity(rb) - rb_can_read(rb);
-}
-
-size_t     rb_read(RingBuffer *rb, void *data, size_t count)
+size_t     rb_read(rb *rb, void *data, size_t count)
 {
     assert(rb != NULL);
     assert(data != NULL);
-    if (rb->rb_head < rb->rb_tail)
-    {
-        int copy_sz = min(count, rb_can_read(rb));
-        memcpy(data, rb->rb_head, copy_sz);
-        rb->rb_head += copy_sz;
-        return copy_sz;
+
+    printf("READ[%d]count=%ld,cap=%ld,read_pos=%d,write_pos=%d,ava_read=%d\n",__LINE__,count,rb->rb_capacity,rb->read_pos,rb->write_pos,rb->available_for_read);
+    //pthread_rwlock_rdlock(&rb->rwlock);
+    pthread_mutex_lock(&rb->rwlock);
+    while(rb->available_for_read < count){
+        pthread_cond_wait(&rb->cond,&rb->rwlock);
     }
-    else
-    {
-        if (count < rb_capacity(rb)-(rb->rb_head - rb->rb_buff))
-        {
-            int copy_sz = count;
-            memcpy(data, rb->rb_head, copy_sz);
-            rb->rb_head += copy_sz;
-            return copy_sz;
+    printf("READ[%d]count=%ld,cap=%ld,read_pos=%d,write_pos=%d,ava_read=%d\n",__LINE__,count,rb->rb_capacity,rb->read_pos,rb->write_pos,rb->available_for_read);
+    if(rb->available_for_read >= count){
+        if(rb->read_pos + count >  rb->rb_capacity){
+            int len = rb->rb_capacity - rb->read_pos;
+            memcpy(data,rb->buff+rb->read_pos,len);
+            memcpy(data+len,rb->buff,count - len);
+            rb->read_pos = count - len;
+        }else{
+            memcpy(data,rb->buff+rb->read_pos,count);
+            rb->read_pos += count;
         }
-        else
-        {
-            int copy_sz = rb_capacity(rb) - (rb->rb_head - rb->rb_buff);
-            memcpy(data, rb->rb_head, copy_sz);
-            rb->rb_head = rb->rb_buff;
-            copy_sz += rb_read(rb, (char*)data+copy_sz, count-copy_sz);
-            return copy_sz;
-        }
+
+        rb->read_pos %= rb->rb_capacity;
+        rb->available_for_read -= count;
+    }else{
+        printf("READ read error !\n");
     }
+    pthread_cond_signal(&rb->cond);
+    printf("READ[%d]count=%ld,cap=%ld,read_pos=%d,write_pos=%d,ava_read=%d\n",__LINE__,count,rb->rb_capacity,rb->read_pos,rb->write_pos,rb->available_for_read);
+    //pthread_rwlock_unlock(&rb->rwlock);
+    pthread_mutex_unlock(&rb->rwlock);
+    return count;
 }
 
-size_t     rb_write(RingBuffer *rb, const void *data, size_t count)
+size_t     rb_write(rb *rb, const void *data, size_t count)
 {
     assert(rb != NULL);
     assert(data != NULL);
-    
-    if (count >= rb_can_write(rb)) return -1;
-    
-    if (rb->rb_head <= rb->rb_tail)
-    {
-        int tail_avail_sz = rb_capacity(rb) - (rb->rb_tail - rb->rb_buff);
-        if (count <= tail_avail_sz)
-        {
-            memcpy(rb->rb_tail, data, count);
-            rb->rb_tail += count;
-            if (rb->rb_tail == rb->rb_buff+rb_capacity(rb))
-                rb->rb_tail = rb->rb_buff;
-            return count;
-        }
-        else
-        {
-            memcpy(rb->rb_tail, data, tail_avail_sz);
-            rb->rb_tail = rb->rb_buff;
-            
-            return tail_avail_sz + rb_write(rb, (char*)data+tail_avail_sz, count-tail_avail_sz);
-        }
+    printf("WRITE[%d]count=%ld,cap=%ld,read_pos=%d,write_pos=%d,ava_read=%d\n",__LINE__,count,rb->rb_capacity,rb->read_pos,rb->write_pos,rb->available_for_read);
+    //pthread_rwlock_wrlock(&rb->rwlock);
+    pthread_mutex_lock(&rb->rwlock);
+    while(rb->rb_capacity - rb->available_for_read < count){
+        pthread_cond_wait(&rb->cond,&rb->rwlock);
     }
-    else
-    {
-        memcpy(rb->rb_tail, data, count);
-        rb->rb_tail += count;
-        return count;
+    printf("WRITE[%d]count=%ld,cap=%ld,read_pos=%d,write_pos=%d,ava_read=%d\n",__LINE__,count,rb->rb_capacity,rb->read_pos,rb->write_pos,rb->available_for_read);
+    if(rb->rb_capacity - rb->available_for_read >= count){
+        if(rb->write_pos + count >  rb->rb_capacity){
+            int len = rb->rb_capacity - rb->write_pos;
+            printf("<%d>\n",__LINE__);
+            memcpy(rb->buff+rb->write_pos,data,len);
+            memcpy(rb->buff,data+len, count - len);
+            rb->write_pos = count - len;
+        }else{
+            //printf("<%d>,%p,%d\n",__LINE__,rb->buff,rb->write_pos);
+            memcpy(&rb->buff[rb->write_pos],data,count);
+            rb->write_pos += count;
+            //printf("<%d>\n",__LINE__);
+        }
+
+        rb->write_pos %= rb->rb_capacity;
+        rb->available_for_read += count;
+    }else{
+        printf("WRITE   error !\n");
     }
+    pthread_cond_signal(&rb->cond);
+    printf("WRITE[%d]count=%ld,cap=%ld,read_pos=%d,write_pos=%d,ava_read=%d\n",__LINE__,count,rb->rb_capacity,rb->read_pos,rb->write_pos,rb->available_for_read);
+    //pthread_rwlock_unlock(&rb->rwlock);
+    pthread_mutex_unlock(&rb->rwlock);
+    return count;
 }
